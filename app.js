@@ -319,7 +319,6 @@ const App = {
     const deltas = {};
     for (let id in players) deltas[id] = 0;
 
-    // 基本分
     if (type === 'jiepao') {
       const amount = basic.inputs[roles.loser] || 0;
       deltas[roles.loser] -= amount;
@@ -332,7 +331,6 @@ const App = {
       });
     }
 
-    // 鸟民影响（直接从当前 game.birds 读取，确保最新）
     const birds = game.birds || {};
     for (let id in players) {
       if (players[id].role === 'bird' && birds[id]) {
@@ -342,19 +340,15 @@ const App = {
         const b = parseInt(birds[id].b) || 0;
 
         if (type === 'jiepao') {
-          // 放炮方给鸟民 b * 金
           deltas[roles.loser] -= b * birdGold;
           deltas[id] += b * birdGold;
-          // 鸟民给胡牌方 a * 金
           deltas[id] -= a * birdGold;
           deltas[roles.winner] += a * birdGold;
         } else if (type === 'zimo') {
-          // 每个输家给鸟民 a * 金
           roles.losers.forEach(lid => {
             deltas[lid] -= a * birdGold;
             deltas[id] += a * birdGold;
           });
-          // 鸟民给胡牌方 (N - a) * 金
           const unhit = N - a;
           deltas[id] -= unhit * birdGold;
           deltas[roles.winner] += unhit * birdGold;
@@ -362,7 +356,6 @@ const App = {
       }
     }
 
-    // 更新分数
     const updates = {};
     for (let id in players) {
       updates[`players/${id}/score`] = (players[id].score || 0) + (deltas[id] || 0);
@@ -418,13 +411,13 @@ const App = {
     db.ref(`rooms/${this.data.roomId}/game/basic/winnerConfirmed`).set(true);
   },
 
-  // 修改后的鸟民输入：只更新数值，保留 confirmed 状态
+  // ===== 修复鸟民输入函数 =====
   updateBirdInput(a, b) {
     const myId = this.data.myId;
     const game = this.data.game;
     if (game.phase !== 'birdInput' || this.data.players[myId].role !== 'bird') return;
-    // 读取现有数据，避免覆盖 confirmed
-    const current = game.birds[myId] || { a: 0, b: 0, confirmed: false };
+    const birds = game.birds || {};
+    const current = birds[myId] || { a: 0, b: 0, confirmed: false };
     current.a = parseInt(a) || 0;
     if (game.type === 'jiepao') current.b = parseInt(b) || 0;
     db.ref(`rooms/${this.data.roomId}/game/birds/${myId}`).set(current);
@@ -434,8 +427,8 @@ const App = {
     const myId = this.data.myId;
     const game = this.data.game;
     if (game.phase !== 'birdInput' || this.data.players[myId].role !== 'bird') return;
-    // 仅更新 confirmed 字段，保留已有的 a, b
-    const current = game.birds[myId] || { a: 0, b: 0 };
+    const birds = game.birds || {};
+    const current = birds[myId] || { a: 0, b: 0 };
     current.confirmed = true;
     db.ref(`rooms/${this.data.roomId}/game/birds/${myId}`).set(current);
   },
@@ -443,6 +436,7 @@ const App = {
   confirmWinnerFinal() {
     db.ref(`rooms/${this.data.roomId}/game/winnerConfirmedFinal`).set(true);
   },
+  // ================================
 
   renderGame() {
     const players = this.data.players;
@@ -560,7 +554,7 @@ const App = {
         mainHtml += `<p style="text-align:center;">输家确认: ${confirmedLosers}/${loserCount} | 赢家: ${basicData.winnerConfirmed ? '已确认' : '待确认'}</p>`;
       }
 
-      // 鸟民输入阶段（修复显示和交互）
+      // 鸟民输入阶段
       else if (game.phase === 'birdInput') {
         const roles = game.roles;
         const isBird = me.role === 'bird';
