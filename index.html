@@ -37,6 +37,7 @@
     .progress-fill { height: 100%; background: #2ecc71; border-radius: 4px; transition: width 0.3s; }
     .phase-indicator { background: #0f3460; border-radius: 10px; padding: 8px 12px; margin: 8px 0; text-align: center; }
     hr { border-color: #1a1a4e; margin: 12px 0; }
+    .danger-btn { background: #5c1a1a; color: #ff9999; }
   </style>
 </head>
 <body>
@@ -83,8 +84,9 @@
             this.listenToRoom();
             this.renderGame();
           } else if (myId) {
-            alert('身份无效');
-            window.location.href = `?room=${this.data.roomId}`;
+            alert('身份无效，请重新选择');
+            // 跳回身份选择页，不保留player参数
+            window.location.href = window.location.pathname + '?room=' + this.data.roomId;
           } else {
             this.renderIdentitySelect();
           }
@@ -150,7 +152,7 @@
           settings: { birdGold },
           game: this.defaultGame()
         });
-        window.location.href = `?room=${roomId}`;
+        window.location.href = window.location.pathname + '?room=' + roomId;
       },
 
       async joinRoom() {
@@ -158,7 +160,7 @@
         if (!roomId) return alert('请输入房间号');
         const snap = await db.ref(`rooms/${roomId}`).once('value');
         if (!snap.exists()) { alert('房间不存在'); return; }
-        window.location.href = `?room=${roomId}`;
+        window.location.href = window.location.pathname + '?room=' + roomId;
       },
 
       renderIdentitySelect() {
@@ -182,7 +184,8 @@
       },
 
       selectIdentity(playerId) {
-        window.location.href = `?room=${this.data.roomId}&player=${playerId}`;
+        // 使用完整路径避免子目录跳转丢失
+        window.location.href = window.location.pathname + '?room=' + this.data.roomId + '&player=' + playerId;
       },
 
       async joinAsNewBird() {
@@ -194,23 +197,28 @@
         await db.ref(`rooms/${this.data.roomId}/players/${birdId}`).set({
           name: name.trim(), score: 0, role: 'bird', birdTotal: total
         });
-        window.location.href = `?room=${this.data.roomId}&player=${birdId}`;
+        window.location.href = window.location.pathname + '?room=' + this.data.roomId + '&player=' + birdId;
       },
 
       listenToRoom() {
         db.ref(`rooms/${this.data.roomId}`).on('value', snap => {
           const data = snap.val();
-          if (!data) return;
+          if (!data) {
+            // 房间被删除（如结束比赛），跳回首页
+            alert('房间已结束');
+            window.location.href = window.location.pathname;
+            return;
+          }
           this.data.players = data.players || {};
           this.data.game = data.game || this.defaultGame();
           this.data.settings = data.settings || { birdGold: 50 };
-          this.autoAssignRoles();  // 自动补全角色
+          this.autoAssignRoles();
           this.renderGame();
           this.checkAutoTransition();
         });
       },
 
-      // 自动分配角色逻辑
+      // 自动分配角色逻辑（保持与之前相同）
       autoAssignRoles() {
         const game = this.data.game;
         if (game.phase !== 'roleSelect') return;
@@ -218,7 +226,6 @@
         const playerIds = Object.keys(players).filter(id => players[id].role === 'player');
         const roles = game.roles || {};
 
-        // 统计各角色人数
         let jiepao = [], fangpao = [], zimo = [], tazimo = [];
         playerIds.forEach(id => {
           const r = roles[id];
@@ -228,11 +235,9 @@
           else if (r === 'tazimo') tazimo.push(id);
         });
 
-        // 冲突检测：同时存在接炮类和自摸类角色
         const hasJiepaoGroup = (jiepao.length > 0 || fangpao.length > 0);
         const hasZimoGroup = (zimo.length > 0 || tazimo.length > 0);
         if (hasJiepaoGroup && hasZimoGroup) {
-          // 冲突，重置所有角色
           const reset = {};
           playerIds.forEach(id => reset[id] = null);
           db.ref(`rooms/${this.data.roomId}/game/roles`).set(reset);
@@ -241,7 +246,6 @@
 
         let newRoles = { ...roles };
 
-        // 情况1：已有1接炮和1放炮，其余人设为none
         if (jiepao.length === 1 && fangpao.length === 1) {
           playerIds.forEach(id => {
             if (id !== jiepao[0] && id !== fangpao[0]) {
@@ -249,10 +253,7 @@
             }
           });
         }
-        // 情况2：只有1接炮，没有放炮，保持
-        // 情况3：只有1放炮，没有接炮，保持
 
-        // 情况4：已有1自摸，其余三人应设为tazimo
         if (zimo.length === 1) {
           playerIds.forEach(id => {
             if (id !== zimo[0]) {
@@ -260,9 +261,7 @@
             }
           });
         }
-        // 情况5：如果没有自摸但有人已选tazimo，不做自动分配，等待自摸出现
 
-        // 如果newRoles与当前roles有差异，则更新数据库
         let changed = false;
         for (let id of playerIds) {
           if (newRoles[id] !== roles[id]) {
@@ -271,14 +270,12 @@
           }
         }
         if (changed) {
-          // 移除undefined的值，但保留null
           const updates = {};
           playerIds.forEach(id => updates[id] = newRoles[id] || null);
           db.ref(`rooms/${this.data.roomId}/game/roles`).update(updates);
         }
       },
 
-      // 自动推进阶段
       checkAutoTransition() {
         const game = this.data.game;
         if (!game) return;
@@ -320,7 +317,6 @@
           }
         }
 
-        // 基本分数完成 → 进入鸟民或结算
         if (game.phase === 'basicInput' && game.basic && game.roles) {
           const basic = game.basic;
           const roles = game.roles;
@@ -340,7 +336,6 @@
           }
         }
 
-        // 鸟民完成
         if (game.phase === 'birdInput') {
           const birdPlayers = Object.entries(players).filter(([id, p]) => p.role === 'bird');
           const allBirdsConfirmed = birdPlayers.every(([id]) => game.birds[id]?.confirmed === true);
@@ -413,7 +408,14 @@
         await db.ref(`rooms/${this.data.roomId}`).update(updates);
       },
 
-      // 用户操作
+      // 结束比赛
+      async endGame() {
+        if (!confirm('确定要结束本场牌局吗？所有数据将被清除！')) return;
+        await db.ref(`rooms/${this.data.roomId}`).remove();
+        // 监听会自动检测房间被删，跳回首页
+      },
+
+      // 用户操作函数
       selectRole(role) {
         if (this.data.game.phase !== 'roleSelect') return;
         db.ref(`rooms/${this.data.roomId}/game/roles/${this.data.myId}`).set(role);
@@ -433,8 +435,7 @@
       },
 
       confirmLoserInput() {
-        const myId = this.data.myId;
-        db.ref(`rooms/${this.data.roomId}/game/basic/confirmed/${myId}`).set(true);
+        db.ref(`rooms/${this.data.roomId}/game/basic/confirmed/${this.data.myId}`).set(true);
       },
 
       confirmWinnerBasic() {
@@ -499,8 +500,7 @@
         // 角色选择阶段
         if (game.phase === 'roleSelect' && me.role === 'player') {
           const myRole = game.roles?.[myId];
-          const isNone = myRole === 'none';
-          if (isNone) {
+          if (myRole === 'none') {
             mainHtml += `<p style="text-align:center;">本局你为旁观，无基本分数变动</p>`;
           } else {
             mainHtml += `<p style="text-align:center;">请选择你本局的角色：</p>`;
@@ -624,10 +624,15 @@
           });
         }
 
+        // 结束比赛按钮
+        mainHtml += `
+          <hr>
+          <button class="btn danger-btn" onclick="App.endGame()">结束本场牌局</button>
+        `;
+
         mainHtml += `</div>`;
         document.getElementById('app').innerHTML = mainHtml;
 
-        // 鸟民输入同步
         window.syncBirdInput = () => {
           const a = document.getElementById('birdA')?.value;
           const b = document.getElementById('birdB')?.value;
