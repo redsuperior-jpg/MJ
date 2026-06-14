@@ -1,16 +1,18 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>麻将计分工具</title>
-  <link rel="stylesheet" href="style.css">
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>麻将计分工具</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 </head>
 <body>
-  <div class="container" id="app">加载中...</div>
-  <script src="app.js"></script>
+    <div id="app" class="container">
+        <div class="card"><p>正在连接实时服务器...</p></div>
+    </div>
+    <script src="app.js"></script>
 </body>
 </html>
