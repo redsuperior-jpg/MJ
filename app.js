@@ -34,11 +34,7 @@ const App = {
   async init() {
     const roomId = getParam('room');
     const myId = getParam('player');
-
-    if (!roomId) {
-      this.renderJoin();
-      return;
-    }
+    if (!roomId) { this.renderJoin(); return; }
 
     this.data.roomId = roomId.toUpperCase();
     try {
@@ -64,7 +60,7 @@ const App = {
         this.renderIdentitySelect();
       }
     } catch (e) {
-      console.error('初始化失败', e);
+      console.error(e);
       safeRender(`<div class="card"><p>加载失败：${e.message}</p></div>`);
     }
   },
@@ -239,12 +235,14 @@ const App = {
     }
   },
 
+  // ---------- 修复后的 checkAutoTransition ----------
   checkAutoTransition() {
     const game = this.data.game;
     if (!game) return;
     const players = this.data.players;
     const roomRef = db.ref(`rooms/${this.data.roomId}/game`);
 
+    // 阶段1：角色选择 -> 自动进入基本分输入
     if (game.phase === 'roleSelect') {
       const playerIds = Object.keys(players).filter(id => players[id].role === 'player');
       const roles = game.roles || {};
@@ -280,14 +278,16 @@ const App = {
       }
     }
 
-    if (game.phase === 'basicInput' && game.basic && game.roles) {
+    // 阶段2：基本分输入完成 -> 进入鸟民阶段或结算
+    if (game.phase === 'basicInput') {
       const basic = game.basic;
       const roles = game.roles;
+      if (!basic || !roles) return; // 防御
       let allLosersConfirmed = false;
       if (game.type === 'jiepao') {
-        allLosersConfirmed = basic.confirmed[roles.loser] === true;
+        allLosersConfirmed = basic.confirmed?.[roles.loser] === true;
       } else if (game.type === 'zimo') {
-        allLosersConfirmed = roles.losers.every(id => basic.confirmed[id] === true);
+        allLosersConfirmed = roles.losers?.every(id => basic.confirmed?.[id] === true);
       }
       if (allLosersConfirmed && basic.winnerConfirmed) {
         const birdPlayers = Object.entries(players).filter(([id, p]) => p.role === 'bird');
@@ -299,14 +299,19 @@ const App = {
       }
     }
 
+    // 阶段3：鸟民全部确认 + 赢家最终确认 -> 结算
     if (game.phase === 'birdInput') {
+      const birds = game.birds || {};
+      const roles = game.roles;
+      if (!roles) return;
       const birdPlayers = Object.entries(players).filter(([id, p]) => p.role === 'bird');
-      const allBirdsConfirmed = birdPlayers.every(([id]) => game.birds[id]?.confirmed === true);
+      const allBirdsConfirmed = birdPlayers.every(([id]) => birds[id]?.confirmed === true);
       if (allBirdsConfirmed && game.winnerConfirmedFinal) {
         this.finalizeRound();
       }
     }
   },
+  // ------------------------------------------------
 
   async finalizeRound() {
     const game = this.data.game;
@@ -320,12 +325,12 @@ const App = {
     for (let id in players) deltas[id] = 0;
 
     if (type === 'jiepao') {
-      const amount = basic.inputs[roles.loser] || 0;
+      const amount = basic.inputs?.[roles.loser] || 0;
       deltas[roles.loser] -= amount;
       deltas[roles.winner] += amount;
     } else if (type === 'zimo') {
       roles.losers.forEach(id => {
-        const amount = basic.inputs[id] || 0;
+        const amount = basic.inputs?.[id] || 0;
         deltas[id] -= amount;
         deltas[roles.winner] += amount;
       });
@@ -395,8 +400,8 @@ const App = {
     const game = this.data.game;
     if (game.phase !== 'basicInput') return;
     let isLoser = false;
-    if (game.type === 'jiepao' && game.roles.loser === myId) isLoser = true;
-    if (game.type === 'zimo' && game.roles.losers.includes(myId)) isLoser = true;
+    if (game.type === 'jiepao' && game.roles?.loser === myId) isLoser = true;
+    if (game.type === 'zimo' && game.roles?.losers?.includes(myId)) isLoser = true;
     if (!isLoser) return;
     const num = parseInt(value) || 0;
     if (num <= 0) return;
@@ -411,7 +416,6 @@ const App = {
     db.ref(`rooms/${this.data.roomId}/game/basic/winnerConfirmed`).set(true);
   },
 
-  // ===== 修复鸟民输入函数 =====
   updateBirdInput(a, b) {
     const myId = this.data.myId;
     const game = this.data.game;
@@ -436,7 +440,6 @@ const App = {
   confirmWinnerFinal() {
     db.ref(`rooms/${this.data.roomId}/game/winnerConfirmedFinal`).set(true);
   },
-  // ================================
 
   renderGame() {
     const players = this.data.players;
@@ -517,7 +520,7 @@ const App = {
           isLoser = (myId === roles.loser);
           isWinner = (myId === roles.winner);
         } else if (game.type === 'zimo') {
-          isLoser = roles.losers.includes(myId);
+          isLoser = roles.losers?.includes(myId);
           isWinner = (myId === roles.winner);
         }
 
@@ -535,11 +538,13 @@ const App = {
         if (isWinner) {
           let loserInfo = '';
           const losers = game.type === 'jiepao' ? [roles.loser] : roles.losers;
-          losers.forEach(id => {
-            const val = basicData.inputs?.[id];
-            const conf = basicData.confirmed?.[id] || false;
-            loserInfo += `<div>${players[id].name}: ${val !== undefined ? val : '未输入'} ${conf ? '✓' : '等待'}</div>`;
-          });
+          if (losers) {
+            losers.forEach(id => {
+              const val = basicData.inputs?.[id];
+              const conf = basicData.confirmed?.[id] || false;
+              loserInfo += `<div>${players[id].name}: ${val !== undefined ? val : '未输入'} ${conf ? '✓' : '等待'}</div>`;
+            });
+          }
           mainHtml += `
             <div>
               <p><strong>输家输入情况 (你为赢家)</strong></p>
@@ -548,15 +553,16 @@ const App = {
             </div>
           `;
         }
-        const loserCount = game.type === 'jiepao' ? 1 : roles.losers.length;
-        const confirmedLosers = game.type === 'jiepao' ? (basicData.confirmed?.[roles.loser] ? 1 : 0) : roles.losers.filter(id => basicData.confirmed?.[id]).length;
-        mainHtml += `<div class="progress"><div class="progress-fill" style="width:${(confirmedLosers/loserCount)*100}%"></div></div>`;
+        const loserCount = game.type === 'jiepao' ? 1 : roles.losers?.length || 0;
+        const confirmedLosers = game.type === 'jiepao' ? (basicData.confirmed?.[roles.loser] ? 1 : 0) : roles.losers?.filter(id => basicData.confirmed?.[id]).length || 0;
+        mainHtml += `<div class="progress"><div class="progress-fill" style="width:${(loserCount ? confirmedLosers/loserCount*100 : 0)}%"></div></div>`;
         mainHtml += `<p style="text-align:center;">输家确认: ${confirmedLosers}/${loserCount} | 赢家: ${basicData.winnerConfirmed ? '已确认' : '待确认'}</p>`;
       }
 
-      // 鸟民输入阶段
+      // 鸟民输入阶段（已修复赢家显示）
       else if (game.phase === 'birdInput') {
         const roles = game.roles;
+        if (!roles) return;
         const isBird = me.role === 'bird';
         const isWinner = (myId === roles.winner);
         const birdPlayers = Object.entries(players).filter(([id, p]) => p.role === 'bird');
