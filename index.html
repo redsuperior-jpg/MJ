@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>麻将计分工具</title>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; display: flex; justify-content: center; align-items: center; }
+    .container { width: 100%; max-width: 480px; padding: 16px; margin: auto; }
+    .card { background: #16213e; border-radius: 16px; padding: 20px; margin-bottom: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+    .title { font-size: 1.5rem; font-weight: bold; margin-bottom: 12px; color: #e94560; text-align: center; }
+    .subtitle { font-size: 0.9rem; color: #a0a0b0; text-align: center; margin-bottom: 12px; }
+    .btn { display: block; width: 100%; padding: 14px; margin: 8px 0; border: none; border-radius: 12px; font-size: 1rem; font-weight: bold; cursor: pointer; background: #0f3460; color: white; transition: all 0.2s; }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: #e94560; }
+    .btn-small { display: inline-block; width: auto; padding: 10px 20px; margin: 4px; font-size: 0.9rem; }
+    input, select { width: 100%; padding: 12px; margin: 6px 0; background: #0f3460; border: 1px solid #1a1a4e; border-radius: 10px; color: white; font-size: 1rem; }
+    .player-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #1a1a4e; }
+    .player-name { font-weight: bold; }
+    .score { font-size: 1.3rem; font-weight: bold; }
+    .positive { color: #2ecc71; }
+    .negative { color: #e94560; }
+    .status-badge { font-size: 0.8rem; padding: 4px 10px; border-radius: 20px; background: #0f3460; }
+    .confirmed { background: #2ecc71; color: #1a1a2e; }
+    .pending { background: #7f8c8d; }
+    .history-item { background: #0f3460; border-radius: 10px; padding: 12px; margin: 8px 0; }
+    .delta-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    .delta-badge { padding: 4px 10px; border-radius: 12px; font-size: 0.85rem; }
+    .delta-badge.positive { background: #2ecc71; color: #1a1a2e; }
+    .delta-badge.negative { background: #e94560; }
+    .hidden { display: none; }
+    .progress { width: 100%; height: 8px; background: #0f3460; border-radius: 4px; margin: 10px 0; }
+    .progress-fill { height: 100%; background: #2ecc71; border-radius: 4px; transition: width 0.3s; }
+    .error-msg { color: #e94560; font-size: 0.9rem; margin: 8px 0; text-align: center; }
+    .action-bar { display: flex; gap: 8px; flex-wrap: wrap; }
+    .action-bar button { flex: 1; }
+    .phase-indicator { background: #0f3460; border-radius: 10px; padding: 8px 12px; margin: 8px 0; font-size: 0.9rem; text-align: center; }
+    hr { border-color: #1a1a4e; margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <div class="container" id="app">
+    <!-- 动态渲染 -->
+  </div>
+
+  <script>
+    // ==================== Firebase 配置（已填入） ====================
+    const firebaseConfig = {
+      apiKey: "AIzaSyA2FztPzHkafdH-QeCdyf2IXJj5QXSiKNo",
+      authDomain: "csmj-ab2f1.firebaseapp.com",
+      databaseURL: "https://csmj-ab2f1-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "csmj-ab2f1",
+      storageBucket: "csmj-ab2f1.firebasestorage.app",
+      messagingSenderId: "510110606249",
+      appId: "1:510110606249:web:2b56fca9489f6615185ab8",
+      measurementId: "G-CLMQG999PE"
+    };
+    // ================================================================
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // 工具函数：获取URL参数
+    function getParam(name) {
+      return new URLSearchParams(window.location.search).get(name);
+    }
+
+    const App = {
+      data: {
+        roomId: null,
+        myId: null,
+        players: null,
+        game: null,
+        settings: null,
+        view: 'join' // join | selectIdentity | game
+      },
+
+      async init() {
+        const roomId = getParam('room');
+        const myId = getParam('player');
+        if (roomId) {
+          this.data.roomId = roomId.toUpperCase();
+          const roomRef = db.ref(`rooms/${this.data.roomId}`);
+          const snap = await roomRef.once('value');
+          if (!snap.exists()) {
+            alert('房间不存在');
+            window.location.href = '/';
+            return;
+          }
+          const roomData = snap.val();
+          this.data.players = roomData.players || {};
+          this.data.game = roomData.game || { round: 0, phase: 'selectType', type: null, basic: {}, birds: {}, winnerConfirmedFinal: false, history: [] };
+          this.data.settings = roomData.settings || { birdGold: 50 };
+
+          if (myId) {
+            if (!this.data.players[myId]) {
+              alert('身份无效');
+              window.location.href = `?room=${this.data.roomId}`;
+              return;
+            }
+            this.data.myId = myId;
+            this.listenToRoom();
+            this.data.view = 'game';
+            this.renderGame();
+          } else {
+            this.renderIdentitySelect();
+          }
+        } else {
+          this.renderJoin();
+        }
+      },
+
+      renderJoin() {
+        let html = `
+          <div class="card">
+            <div class="title">🀄 麻将计分工具</div>
+            <div class="subtitle">创建新房间或加入已有房间</div>
+            <button class="btn btn-primary" onclick="App.createRoom()">创建新房间</button>
+            <div style="margin:16px 0; text-align:center; color:#7f8c8d;">或</div>
+            <input type="text" id="roomInput" placeholder="输入房间号">
+            <button class="btn" onclick="App.joinRoom()">加入房间</button>
+          </div>
+        `;
+        document.getElementById('app').innerHTML = html;
+      },
+
+      async createRoom() {
+        // 步骤1：输入4名基本选手姓名
+        const playerNames = [];
+        for (let i = 0; i < 4; i++) {
+          const name = prompt(`选手${i+1} 的姓名：`, `选手${i+1}`);
+          if (!name) return;
+          playerNames.push(name.trim());
+        }
+
+        // 步骤2：可选鸟民
+        const addBird = confirm('是否现在添加鸟民？');
+        const birdPlayers = [];
+        if (addBird) {
+          const count = parseInt(prompt('鸟民数量 (1-3)：', '1'));
+          if (isNaN(count) || count < 1 || count > 3) return alert('数量无效');
+          for (let i = 0; i < count; i++) {
+            const name = prompt(`鸟民${i+1} 的姓名：`, `鸟民${i+1}`);
+            if (!name) return;
+            const total = parseInt(prompt(`${name} 的总鸟数 (4 或 8)：`, '8'));
+            if (![4, 8].includes(total)) return alert('总鸟数只能为4或8');
+            birdPlayers.push({ name: name.trim(), birdTotal: total });
+          }
+        }
+
+        const birdGold = parseInt(prompt('抓鸟金（默认50）：', '50')) || 50;
+
+        const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+        const players = {};
+        playerNames.forEach((name, idx) => {
+          players[idx] = { name, score: 0, role: 'player' };
+        });
+        birdPlayers.forEach((bp, idx) => {
+          const id = 'bird_' + idx;
+          players[id] = { name: bp.name, score: 0, role: 'bird', birdTotal: bp.birdTotal };
+        });
+
+        await db.ref(`rooms/${roomId}`).set({
+          players,
+          settings: { birdGold },
+          game: {
+            round: 0,
+            phase: 'selectType',
+            type: null,
+            basic: {},
+            birds: {},
+            winnerConfirmedFinal: false,
+            history: []
+          }
+        });
+
+        window.location.href = `?room=${roomId}`;
+      },
+
+      async joinRoom() {
+        const roomId = document.getElementById('roomInput').value.trim().toUpperCase();
+        if (!roomId) return alert('请输入房间号');
+        const snap = await db.ref(`rooms/${roomId}`).once('value');
+        if (!snap.exists()) {
+          alert('房间不存在');
+          return;
+        }
+        window.location.href = `?room=${roomId}`;
+      },
+
+      renderIdentitySelect() {
+        const players = this.data.players;
+        let playerOptions = '';
+        let birdOptions = '';
+        for (let id in players) {
+          const p = players[id];
+          if (p.role === 'player') {
+            playerOptions += `<button class="btn btn-small" onclick="App.selectIdentity('${id}')">${p.name} (选手)</button>`;
+          } else {
+            birdOptions += `<button class="btn btn-small" onclick="App.selectIdentity('${id}')">${p.name} (鸟民)</button>`;
+          }
+        }
+
+        // 是否还能加入新鸟民
+        const birdCount = Object.values(players).filter(p => p.role === 'bird').length;
+        let joinBirdBtn = '';
+        if (birdCount < 3) {
+          joinBirdBtn = `<button class="btn" onclick="App.joinAsNewBird()">加入为新鸟民</button>`;
+        }
+
+        const html = `
+          <div class="card">
+            <div class="title">选择你的身份</div>
+            <div class="action-bar">${playerOptions}</div>
+            ${birdOptions ? '<div class="action-bar" style="margin-top:8px;">' + birdOptions + '</div>' : ''}
+            ${joinBirdBtn}
+          </div>
+        `;
+        document.getElementById('app').innerHTML = html;
+      },
+
+      selectIdentity(playerId) {
+        window.location.href = `?room=${this.data.roomId}&player=${playerId}`;
+      },
+
+      async joinAsNewBird() {
+        const name = prompt('你的鸟民名字：');
+        if (!name) return;
+        const total = parseInt(prompt('你的总鸟数 (4 或 8)：', '8'));
+        if (![4, 8].includes(total)) return alert('总鸟数只能为4或8');
+        const birdId = 'bird_' + Date.now();
+        await db.ref(`rooms/${this.data.roomId}/players/${birdId}`).set({
+          name: name.trim(),
+          score: 0,
+          role: 'bird',
+          birdTotal: total
+        });
+        window.location.href = `?room=${this.data.roomId}&player=${birdId}`;
+      },
+
+      listenToRoom() {
+        db.ref(`rooms/${this.data.roomId}`).on('value', snap => {
+          const data = snap.val();
+          if (!data) return;
+          this.data.players = data.players || {};
+          this.data.game = data.game || {};
+          this.data.settings = data.settings || { birdGold: 50 };
+          this.renderGame();
+          this.checkAutoTransition();
+        });
+      },
+
+      // 自动推进阶段逻辑（当所有人完成当前步骤时触发）
+      checkAutoTransition() {
+        const game = this.data.game;
+        if (!game) return;
+        const players = this.data.players;
+        const roomRef = db.ref(`rooms/${this.data.roomId}/game`);
+
+        // 阶段1：基本分数 - 输家输入与确认，赢家确认
+        if (game.phase === 'basicInput') {
+          const basic = game.basic || {};
+          const roles = basic.roles; // { winner, losers: [] }
+          if (!roles) return;
+          const losers = roles.losers;
+          const winner = roles.winner;
+          const allLosersInputted = losers.every(id => basic.inputs && basic.inputs[id] !== undefined && basic.inputs[id] !== null);
+          const allLosersConfirmed = losers.every(id => basic.confirmed && basic.confirmed[id] === true);
+          const winnerConfirmed = basic.winnerConfirmed === true;
+
+          if (allLosersInputted && allLosersConfirmed && !winnerConfirmed) {
+            // 自动通知赢家确认（无需自动操作，赢家手动点击）
+          }
+          if (winnerConfirmed && allLosersConfirmed) {
+            // 进入鸟民阶段或结算
+            const birdPlayers = Object.entries(players).filter(([id, p]) => p.role === 'bird');
+            if (birdPlayers.length > 0) {
+              roomRef.update({
+                phase: 'birdInput',
+                birds: {} // 重置鸟民输入
+              });
+            } else {
+              this.finalizeRound();
+            }
+          }
+        }
+
+        // 阶段2：鸟民输入
+        if (game.phase === 'birdInput') {
+          const birds = game.birds || {};
+          const birdPlayers = Object.entries(players).filter(([id, p]) => p.role === 'bird');
+          const allBirdsConfirmed = birdPlayers.every(([id]) => birds[id] && birds[id].confirmed === true);
+          const winnerConfirmedFinal = game.winnerConfirmedFinal === true;
+          if (allBirdsConfirmed && !winnerConfirmedFinal) {
+            // 等待赢家最终确认
+          }
+          if (allBirdsConfirmed && winnerConfirmedFinal) {
+            this.finalizeRound();
+          }
+        }
+      },
+
+      async finalizeRound() {
+        const game = this.data.game;
+        const players = this.data.players;
+        const settings = this.data.settings;
+        const basic = game.basic || {};
+        const roles = basic.roles;
+        const type = game.type;
+        const birdGold = settings.birdGold || 50;
+
+        // 计算基本变动
+        const deltas = {}; // { playerId: number }
+        for (let id in players) deltas[id] = 0;
+
+        if (type === 'fangpao') {
+          const loser = roles.losers[0];
+          const winner = roles.winner;
+          const amount = basic.inputs[loser] || 0;
+          deltas[loser] -= amount;
+          deltas[winner] += amount;
+        } else if (type === 'zimo') {
+          const winner = roles.winner;
+          const losers = roles.losers;
+          losers.forEach(id => {
+            const amount = basic.inputs[id] || 0;
+            deltas[id] -= amount;
+            deltas[winner] += amount;
+          });
+        }
+
+        // 计算鸟民影响
+        const birds = game.birds || {};
+        for (let id in players) {
+          if (players[id].role === 'bird' && birds[id]) {
+            const bird = players[id];
+            const birdTotal = bird.birdTotal;
+            const a = birds[id].a || 0;
+            const b = birds[id].b || 0;
+
+            if (type === 'fangpao') {
+              const loser = roles.losers[0];
+              const winner = roles.winner;
+              deltas[loser] -= a * birdGold;
+              deltas[id] += a * birdGold; // 鸟民从放炮方收入
+              deltas[id] -= b * birdGold;
+              deltas[winner] += b * birdGold; // 鸟民付给胡牌方
+            } else if (type === 'zimo') {
+              const winner = roles.winner;
+              const losers = roles.losers;
+              const N = birdTotal;
+              losers.forEach(loserId => {
+                deltas[loserId] -= a * birdGold;
+                deltas[id] += a * birdGold;
+              });
+              const unhit = N - a;
+              deltas[id] -= unhit * birdGold;
+              deltas[winner] += unhit * birdGold;
+            }
+          }
+        }
+
+        // 更新分数与历史
+        const updates = {};
+        for (let id in players) {
+          updates[`players/${id}/score`] = (players[id].score || 0) + (deltas[id] || 0);
+        }
+        const history = game.history || [];
+        history.push({
+          round: game.round + 1,
+          type,
+          basics: basic.inputs,
+          birds: game.birds,
+          deltas
+        });
+        updates['game/history'] = history;
+        updates['game/round'] = game.round + 1;
+        updates['game/phase'] = 'selectType';
+        updates['game/type'] = null;
+        updates['game/basic'] = {};
+        updates['game/birds'] = {};
+        updates['game/winnerConfirmedFinal'] = false;
+
+        await db.ref(`rooms/${this.data.roomId}`).update(updates);
+      },
+
+      // ==================== 用户操作 ====================
+      async startBasicInput(type) {
+        const players = this.data.players;
+        const playerIds = Object.keys(players).filter(id => players[id].role === 'player');
+        if (type === 'fangpao') {
+          const winnerId = prompt('请输入胡牌方（赢家）的编号：\n' + playerIds.map(id => `${id}: ${players[id].name}`).join('\n'));
+          if (!winnerId || !players[winnerId] || players[winnerId].role !== 'player') return alert('无效');
+          const loserId = prompt('请输入放炮方（输家）的编号：\n' + playerIds.filter(id => id !== winnerId).map(id => `${id}: ${players[id].name}`).join('\n'));
+          if (!loserId || !players[loserId] || loserId === winnerId) return alert('无效');
+          await db.ref(`rooms/${this.data.roomId}/game`).update({
+            type: 'fangpao',
+            phase: 'basicInput',
+            basic: {
+              roles: { winner: winnerId, losers: [loserId] },
+              inputs: {},
+              confirmed: {},
+              winnerConfirmed: false
+            },
+            birds: {},
+            winnerConfirmedFinal: false
+          });
+        } else if (type === 'zimo') {
+          const winnerId = prompt('请输入胡牌方（赢家）的编号：\n' + playerIds.map(id => `${id}: ${players[id].name}`).join('\n'));
+          if (!winnerId || !players[winnerId] || players[winnerId].role !== 'player') return alert('无效');
+          const losers = playerIds.filter(id => id !== winnerId);
+          await db.ref(`rooms/${this.data.roomId}/game`).update({
+            type: 'zimo',
+            phase: 'basicInput',
+            basic: {
+              roles: { winner: winnerId, losers },
+              inputs: {},
+              confirmed: {},
+              winnerConfirmed: false
+            },
+            birds: {},
+            winnerConfirmedFinal: false
+          });
+        }
+      },
+
+      setMyInput(value) {
+        const myId = this.data.myId;
+        const game = this.data.game;
+        if (game.phase !== 'basicInput') return;
+        const roles = game.basic.roles;
+        if (!roles.losers.includes(myId)) return alert('你不是输家，不能输入');
+        const num = parseInt(value) || 0;
+        if (num <= 0) return alert('请输入正数');
+        db.ref(`rooms/${this.data.roomId}/game/basic/inputs/${myId}`).set(num);
+      },
+
+      confirmLoserInput() {
+        const myId = this.data.myId;
+        const game = this.data.game;
+        if (game.phase !== 'basicInput' || !game.basic.roles.losers.includes(myId)) return;
+        if (game.basic.inputs[myId] === undefined) return alert('请先输入分数');
+        db.ref(`rooms/${this.data.roomId}/game/basic/confirmed/${myId}`).set(true);
+      },
+
+      confirmWinnerBasic() {
+        const myId = this.data.myId;
+        const game = this.data.game;
+        if (game.phase !== 'basicInput' || game.basic.roles.winner !== myId) return;
+        const allConfirmed = game.basic.roles.losers.every(id => game.basic.confirmed[id] === true);
+        if (!allConfirmed) return alert('还有输家未确认');
+        db.ref(`rooms/${this.data.roomId}/game/basic/winnerConfirmed`).set(true);
+      },
+
+      setBirdInput(a, b) {
+        const myId = this.data.myId;
+        const game = this.data.game;
+        if (game.phase !== 'birdInput' || this.data.players[myId].role !== 'bird') return;
+        const payload = { a: parseInt(a) || 0, confirmed: false };
+        if (game.type === 'fangpao') payload.b = parseInt(b) || 0;
+        db.ref(`rooms/${this.data.roomId}/game/birds/${myId}`).set(payload);
+      },
+
+      confirmBirdInput() {
+        const myId = this.data.myId;
+        const game = this.data.game;
+        if (game.phase !== 'birdInput' || this.data.players[myId].role !== 'bird') return;
+        db.ref(`rooms/${this.data.roomId}/game/birds/${myId}/confirmed`).set(true);
+      },
+
+      confirmWinnerFinal() {
+        const myId = this.data.myId;
+        const game = this.data.game;
+        if (game.phase !== 'birdInput' || game.basic?.roles?.winner !== myId) return;
+        const birdPlayers = Object.entries(this.data.players).filter(([id, p]) => p.role === 'bird');
+        const allBirdsConfirmed = birdPlayers.every(([id]) => game.birds[id] && game.birds[id].confirmed === true);
+        if (!allBirdsConfirmed) return alert('还有鸟民未确认');
+        db.ref(`rooms/${this.data.roomId}/game/winnerConfirmedFinal`).set(true);
+      },
+
+      // ==================== 界面渲染 ====================
+      renderGame() {
+        if (this.data.view !== 'game') return;
+        const players = this.data.players;
+        const game = this.data.game;
+        const settings = this.data.settings;
+        const myId = this.data.myId;
+        const me = players[myId];
+        if (!me) return;
+
+        // 排名卡片
+        const sorted = Object.entries(players).sort((a, b) => b[1].score - a[1].score);
+        let rankingHtml = '';
+        sorted.forEach(([id, p], index) => {
+          const isMe = (id === myId);
+          rankingHtml += `
+            <div class="player-row" style="${isMe ? 'background:#0f3460; border-radius:10px; padding:8px;' : ''}">
+              <span>${index+1}. ${p.name} ${isMe ? '(我)' : ''} [${p.role==='bird'?'鸟':'选'}]</span>
+              <span class="score ${p.score >= 0 ? 'positive' : 'negative'}">${p.score >= 0 ? '+' + p.score : p.score}</span>
+            </div>
+          `;
+        });
+
+        // 当前阶段提示
+        let phaseInfo = '';
+        if (game.phase === 'selectType') phaseInfo = '等待选择牌型...';
+        else if (game.phase === 'basicInput') phaseInfo = `基本分数输入阶段 (${game.type === 'fangpao' ? '放炮' : '自摸'})`;
+        else if (game.phase === 'birdInput') phaseInfo = `鸟民抓鸟阶段`;
+        else if (game.phase === 'result') phaseInfo = '结算中...';
+
+        let mainHtml = `
+          <div class="card">
+            <div style="display:flex; justify-content:space-between;">
+              <span>第 ${game.round + 1} 局</span>
+              <span style="color:#a0a0b0;">房间 ${this.data.roomId}</span>
+            </div>
+            <div class="phase-indicator">${phaseInfo}</div>
+            ${rankingHtml}
+            <hr>
+        `;
+
+        // 根据阶段与角色显示操作区
+        if (game.phase === 'selectType') {
+          mainHtml += `<p style="text-align:center; margin:8px 0;">请选择本局牌型 (任何人可操作)</p>`;
+          mainHtml += `<button class="btn" onclick="App.startBasicInput('fangpao')">放炮</button>`;
+          mainHtml += `<button class="btn" onclick="App.startBasicInput('zimo')">自摸</button>`;
+        }
+
+        else if (game.phase === 'basicInput' && game.basic.roles) {
+          const roles = game.basic.roles;
+          const winner = roles.winner;
+          const losers = roles.losers;
+          const isLoser = losers.includes(myId);
+          const isWinner = (myId === winner);
+          const basicData = game.basic;
+
+          // 输家输入区
+          if (isLoser) {
+            const myInput = basicData.inputs?.[myId] || '';
+            const confirmed = basicData.confirmed?.[myId] || false;
+            mainHtml += `
+              <div style="margin: 12px 0;">
+                <p><strong>你需支付给 ${players[winner].name} 的分数</strong></p>
+                <input type="number" value="${myInput}" placeholder="输入支付分数" onchange="App.setMyInput(this.value)" ${confirmed ? 'disabled' : ''}>
+                <button class="btn btn-primary" onclick="App.confirmLoserInput()" ${confirmed ? 'disabled' : ''}>
+                  ${confirmed ? '已确认' : '确认支付'}
+                </button>
+              </div>
+            `;
+          }
+
+          // 赢家确认区
+          if (isWinner) {
+            let loserInfo = '';
+            losers.forEach(id => {
+              const val = basicData.inputs?.[id];
+              const conf = basicData.confirmed?.[id] || false;
+              loserInfo += `<div>${players[id].name}: ${val !== undefined ? val : '未输入'} ${conf ? '✓' : ''}</div>`;
+            });
+            mainHtml += `
+              <div style="margin:12px 0;">
+                <p><strong>输家输入情况 (你为赢家)</strong></p>
+                ${loserInfo}
+                <button class="btn btn-primary" onclick="App.confirmWinnerBasic()" ${basicData.winnerConfirmed ? 'disabled' : ''}>
+                  ${basicData.winnerConfirmed ? '已确认' : '确认基本分数'}
+                </button>
+              </div>
+            `;
+          }
+
+          // 进度显示
+          const loserConfirmed = losers.filter(id => basicData.confirmed?.[id]).length;
+          mainHtml += `<div class="progress"><div class="progress-fill" style="width:${(loserConfirmed/losers.length)*100}%"></div></div>`;
+          mainHtml += `<p style="text-align:center; font-size:0.9rem;">输家确认: ${loserConfirmed}/${losers.length} | 赢家: ${basicData.winnerConfirmed ? '已确认' : '待确认'}</p>`;
+        }
+
+        else if (game.phase === 'birdInput') {
+          const roles = game.basic?.roles;
+          if (!roles) return;
+          const winner = roles.winner;
+          const isBird = (me.role === 'bird');
+          const isWinner = (myId === winner);
+          const birdPlayers = Object.entries(players).filter(([id, p]) => p.role === 'bird');
+          const birdData = game.birds || {};
+
+          if (isBird) {
+            const myBird = birdData[myId] || { a: '', b: '' };
+            mainHtml += `<p><strong>你的抓鸟输入 (总鸟数: ${me.birdTotal})</strong></p>`;
+            mainHtml += `<label>中胡牌方个数: <input type="number" id="birdA" value="${myBird.a || ''}" onchange="App.updateBirdInput()"></label>`;
+            if (game.type === 'fangpao') {
+              mainHtml += `<label>中放炮方个数: <input type="number" id="birdB" value="${myBird.b || ''}" onchange="App.updateBirdInput()"></label>`;
+            }
+            mainHtml += `<button class="btn btn-primary" onclick="App.confirmBirdInput()" ${myBird.confirmed ? 'disabled' : ''}>
+              ${myBird.confirmed ? '已确认' : '确认抓鸟'}
+            </button>`;
+          }
+
+          // 赢家最终确认
+          if (isWinner) {
+            let birdStatus = '';
+            birdPlayers.forEach(([id, p]) => {
+              const b = birdData[id];
+              birdStatus += `<div>${p.name}: 中胡${b?.a || '?'} ` + (game.type==='fangpao' ? `中炮${b?.b || '?'}` : '') + ` ${b?.confirmed ? '✓' : '未确认'}</div>`;
+            });
+            mainHtml += `
+              <div style="margin:12px 0;">
+                <p><strong>鸟民输入 (你为赢家)</strong></p>
+                ${birdStatus}
+                <button class="btn btn-primary" onclick="App.confirmWinnerFinal()" ${game.winnerConfirmedFinal ? 'disabled' : ''}>
+                  ${game.winnerConfirmedFinal ? '已确认' : '最终确认本局'}
+                </button>
+              </div>
+            `;
+          }
+
+          // 进度
+          const birdConfirmed = birdPlayers.filter(([id]) => birdData[id]?.confirmed).length;
+          mainHtml += `<div class="progress"><div class="progress-fill" style="width:${birdConfirmed/birdPlayers.length*100}%"></div></div>`;
+          mainHtml += `<p style="text-align:center;">鸟民确认: ${birdConfirmed}/${birdPlayers.length} | 赢家最终: ${game.winnerConfirmedFinal ? '已确认' : '待确认'}</p>`;
+        }
+
+        // 历史记录
+        if (game.history && game.history.length > 0) {
+          mainHtml += `<hr><p><strong>历史记录</strong></p>`;
+          game.history.slice().reverse().forEach(h => {
+            mainHtml += `<div class="history-item">
+              <strong>第 ${h.round} 局 (${h.type === 'fangpao' ? '放炮' : '自摸'})</strong>
+              <div class="delta-list">`;
+            for (let pid in h.deltas) {
+              const d = h.deltas[pid];
+              const cls = d >= 0 ? 'positive' : 'negative';
+              mainHtml += `<span class="delta-badge ${cls}">${players[pid]?.name}: ${d>0?'+'+d:d}</span>`;
+            }
+            mainHtml += `</div></div>`;
+          });
+        }
+
+        mainHtml += `</div>`;
+        document.getElementById('app').innerHTML = mainHtml;
+
+        // 鸟民输入实时更新辅助函数（挂载到window）
+        window.updateBirdInput = () => {
+          const a = document.getElementById('birdA')?.value;
+          const b = document.getElementById('birdB')?.value;
+          App.setBirdInput(a, b || 0);
+        };
+      }
+    };
+
+    window.onload = () => App.init();
+  </script>
+</body>
+</html>
