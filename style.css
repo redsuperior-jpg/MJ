@@ -16,9 +16,8 @@ input { width: 100%; padding: 12px; margin: 6px 0; background: #0f3460; border: 
 .positive { color: #2ecc71; }
 .negative { color: #e94560; }
 
-.version-tag { text-align: center; font-size: 10px; color: #4e4e6a; margin-top: 20px; text-transform: uppercase; letter-spacing: 1px; }
-.history-item { background: #0f3460; border-radius: 10px; padding: 12px; margin: 8px 0; font-size: 0.85rem; }
-.delta-badge { padding: 2px 8px; border-radius: 8px; font-size: 0.75rem; margin: 2px; display: inline-block; }
-.delta-badge.positive { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
-.delta-badge.negative { background: rgba(233, 69, 96, 0.2); color: #e94560; }
+.version-tag { text-align: center; font-size: 10px; color: #4e4e6a; margin-top: 20px; text-transform: uppercase; }
+.history-item { background: #0f3460; border-radius: 10px; padding: 12px; margin: 8px 0; font-size: 0.85rem; border-left: 4px solid #e94560; }
+.delta-badge { padding: 2px 8px; border-radius: 8px; font-size: 0.75rem; margin: 2px; display: inline-block; background: rgba(255,255,255,0.05); }
 .danger-btn { background: #5c1a1a; color: #ff9999; margin-top: 20px; }
+.phase-indicator { text-align: center; padding: 10px; color: #7f8c8d; font-style: italic; }
