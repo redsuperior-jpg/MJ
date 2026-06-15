@@ -1,6 +1,6 @@
 /**
- * 麻将计分工具 - v1.2.7 (稳定补丁版)
- * 修复了创建房间后的初始化卡死问题
+ * 麻将计分工具 - v1.2.8 (全量修复版)
+ * 修复了 Firebase 路径语法错误和返回首页无反应的问题
  */
 
 const firebaseConfig = { 
@@ -13,17 +13,19 @@ const firebaseConfig = {
     appId: "1:510110606249:web:2b56fca9489f6615185ab8" 
 };
 
-// 全局捕获初始化错误
+// 初始化校验
 try {
-    firebase.initializeApp(firebaseConfig);
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
 } catch(e) {
-    console.error("Firebase Init Error:", e);
+    console.error("Firebase 初始化失败:", e);
 }
 
 const db = firebase.database();
-const VERSION = "v1.2.7-20260616_Stable";
+const VERSION = "v1.2.8-20260616_FinalFix";
 
-// 安全存储
+// 安全存储工具
 const Storage = {
     save(roomId, playerId) {
         try {
@@ -39,6 +41,12 @@ const Storage = {
                 player: urlParams.get('player') || localStorage.getItem('mj_player')
             };
         } catch(e) { return { room: null, player: null }; }
+    },
+    clear() {
+        try {
+            localStorage.removeItem('mj_room');
+            localStorage.removeItem('mj_player');
+        } catch(e) {}
     }
 };
 
@@ -52,12 +60,10 @@ const App = {
 
     async init() {
         const { room, player } = Storage.get();
-        
-        // 关键修复：如果已经在房间里，先渲染一个加载中的游戏框架，避免占位符停留
         if (room) {
             this.data.roomId = room.toUpperCase();
             if (player) Storage.save(this.data.roomId, player);
-            safeRender(`<div class="card"><div class="title">正在同步房间 ${this.data.roomId}...</div></div>`);
+            safeRender(`<div class="card"><div class="title">正在载入房间 ${this.data.roomId}...</div></div>`);
             this.listenToRoom(player);
         } else {
             this.renderJoin();
@@ -65,23 +71,22 @@ const App = {
     },
 
     listenToRoom(myId) {
-        // 设置超时提醒：如果3秒内没连上 Firebase，显示手动返回按钮
-        const connectionTimeout = setTimeout(() => {
+        // 增加连接超时处理
+        const timeout = setTimeout(() => {
             if (!this.data.game) {
-                safeRender(`<div class="card">
-                    <div class="title">数据库连接较慢</div>
-                    <p style="text-align:center;">正在尝试建立实时通道...</p>
-                    <button class="btn" onclick="location.reload()">手动刷新</button>
-                    <button class="btn" style="background:#333" onclick="localStorage.clear();location.href=location.pathname">重选身份/退出</button>
-                </div>`);
+                safeRender(`<div class="card"><div class="title">连接超时</div><p style="text-align:center">网络状况不佳，请刷新重试</p><button class="btn" onclick="location.reload()">手动刷新</button></div>`);
             }
-        }, 3000);
+        }, 5000);
 
         db.ref(`rooms/${this.data.roomId}`).on('value', snap => {
-            clearTimeout(connectionTimeout); // 连接成功，取消超时提醒
+            clearTimeout(timeout);
             const data = snap.val();
             if (!data) { 
-                safeRender('<div class="card"><p>房间已失效</p><button class="btn" onclick="localStorage.clear();location.href=location.pathname">返回首页</button></div>');
+                // 修复：优化“返回首页”按钮的 onclick 逻辑
+                safeRender(`<div class="card">
+                    <p style="text-align:center; margin-bottom:20px;">房间已解散或不存在</p>
+                    <button class="btn btn-primary" onclick="App.forceExit()">返回首页</button>
+                </div>`);
                 return; 
             }
             this.data.players = data.players || {};
@@ -99,7 +104,11 @@ const App = {
         });
     },
 
-    // --- 以下逻辑保持 v1.2.6 核心规则不变 ---
+    forceExit() {
+        Storage.clear();
+        window.location.href = window.location.pathname;
+    },
+
     renderJoin() {
         safeRender(`
             <div class="card">
@@ -124,9 +133,6 @@ const App = {
         const players = {};
         names.forEach((name, idx) => { players[`p${idx}`] = { name, score: 0, role: 'player' }; });
         
-        // 渲染“正在上传...”提示
-        safeRender(`<div class="card"><div class="title">正在初始化房间 ${id}...</div></div>`);
-        
         try {
             await db.ref(`rooms/${id}`).set({
                 players,
@@ -135,8 +141,7 @@ const App = {
             });
             window.location.href = `?room=${id}`;
         } catch(e) {
-            alert("创建失败，请检查网络连接");
-            location.reload();
+            alert("房间创建失败，请检查网络");
         }
     },
 
@@ -146,7 +151,7 @@ const App = {
     },
 
     renderIdentitySelect() {
-        let html = `<div class="card"><div class="title">确认身份</div>`;
+        let html = `<div class="card"><div class="title">确认你的身份</div>`;
         Object.entries(this.data.players).forEach(([id, p]) => {
             html += `<button class="btn" onclick="App.selectIdentity('${id}')">${p.name}</button>`;
         });
@@ -161,9 +166,10 @@ const App = {
 
     async joinAsNewBird() {
         const name = prompt('鸟民姓名：'); if (!name) return;
-        const total = parseInt(prompt('总鸟数 (4 或 8)：', '8')) || 8;
         const birdId = 'bird_' + Date.now();
-        await db.ref(`rooms/${this.data.roomId}/players/${birdId}`).set({ name: name.trim(), score: 0, role: 'bird', birdTotal: total });
+        await db.ref(`rooms/${this.data.roomId}/players/${birdId}`).set({ 
+            name: name.trim(), score: 0, role: 'bird', birdTotal: 8 
+        });
         this.selectIdentity(birdId);
     },
 
@@ -235,17 +241,17 @@ const App = {
         Object.keys(players).forEach(id => updates[`players/${id}/score`] = (players[id].score || 0) + deltas[id]);
         const history = game.history || [];
         history.push({ round: game.round + 1, type: game.type, deltas });
+        // 原子化重置下一局
         updates['game'] = { round: game.round + 1, phase: 'roleSelect', roles: {}, basic: {}, birds: {}, winnerConfirmedFinal: false, history: history };
         await db.ref(`rooms/${this.data.roomId}`).update(updates);
     },
 
-    // --- UI 渲染 ---
     renderGame() {
         const { players, game, myId } = this.data;
         const me = players[myId];
-        let html = `<div class="card"><div class="title">第 ${game.round + 1} 局 - ${this.data.roomId}</div>`;
+        let html = `<div class="card"><div class="title">第 ${game.round + 1} 局 - 房间 ${this.data.roomId}</div>`;
 
-        Object.entries(players).sort((a,b)=>b[6].score - a[6].score).forEach(([id, p]) => {
+        Object.entries(players).sort((a,b)=>b[1].score - a[1].score).forEach(([id, p]) => {
             html += `<div class="player-row" ${id===myId?'style="background:rgba(233,69,96,0.15); border-radius:8px; padding:4px 8px;"':''}>
                 <span>${p.name} ${p.role==='bird'?'🐦':'👤'}</span>
                 <span class="score ${p.score>=0?'positive':'negative'}">${p.score>=0?'+':''}${p.score}</span>
@@ -260,14 +266,14 @@ const App = {
         } else if (game.phase === 'basicInput') {
             const isWinner = myId === game.roles.winner;
             if (isWinner) {
-                let s = '输家确认状况：<br>';
+                let s = '等待确认：<br>';
                 const ls = game.type==='jiepao'?[game.roles.loser]:game.roles.losers;
                 ls.forEach(id=>s += `${players[id].name}: ${game.basic.inputs?.[id]||0} ${game.basic.confirmed?.[id]?'✓':'...'} `);
                 html += `<div class="history-item">${s}</div><button class="btn btn-primary" onclick="App.updateRef('game/basic/winnerConfirmed', true)">复核基本分</button>`;
             } else if (game.roles.loser === myId || game.roles.losers?.includes(myId)) {
-                html += `<input type="number" placeholder="支付金额" onchange="App.updateBasicInput(this.value)">
+                html += `<input type="number" placeholder="金额" onchange="App.updateBasicInput(this.value)">
                          <button class="btn btn-primary" onclick="App.updateRef('game/basic/confirmed/'+App.data.myId, true)">确认支付</button>`;
-            } else { html += `<div class="phase-indicator">等待输家确认分数...</div>`; }
+            } else { html += `<div class="phase-indicator">等待其他选手操作...</div>`; }
         } else if (game.phase === 'birdInput') {
             const bPs = Object.values(players).filter(p => p.role === 'bird');
             if (me.role === 'bird' || (bPs.length === 0 && myId === game.roles.winner)) {
@@ -275,12 +281,12 @@ const App = {
                 html += `<div class="phase-indicator">抓鸟录入 (N=${me.birdTotal||8})</div>
                     <input type="number" id="birdA" value="${b.a}" placeholder="中胡家数" onchange="App.syncBirdInput()">
                     ${game.type==='jiepao' ? `<input type="number" id="birdB" value="${b.b}" placeholder="中炮家数" onchange="App.syncBirdInput()">` : ''}
-                    <button class="btn btn-primary" onclick="App.syncBirdInput(true)">确认并提交结果</button>`;
+                    <button class="btn btn-primary" onclick="App.syncBirdInput(true)">提交抓鸟结果</button>`;
             } else if (myId === game.roles.winner) {
-                let s = '抓鸟动态：<br>';
+                let s = '抓鸟状态：<br>';
                 Object.entries(game.birds || {}).forEach(([bid, b]) => s += `${players[bid]?.name}: 胡${b.a} ${b.confirmed?'✓':'...'} `);
-                html += `<div class="history-item">${s}</div><button class="btn btn-primary" onclick="App.updateRef('game/winnerConfirmedFinal', true)">查看完毕，最终结算</button>`;
-            } else { html += `<div class="phase-indicator">等待抓鸟结果复核...</div>`; }
+                html += `<div class="history-item">${s}</div><button class="btn btn-primary" onclick="App.updateRef('game/winnerConfirmedFinal', true)">确认结算</button>`;
+            }
         }
 
         html += `<div class="version-tag">${VERSION}</div><button class="btn danger-btn" onclick="App.endGame()">解散本场牌局</button></div>`;
@@ -295,7 +301,12 @@ const App = {
         db.ref(`rooms/${this.data.roomId}/game/birds/${this.data.myId}`).update({ a, b, confirmed: done });
     },
     updateRef(path, val) { db.ref(`rooms/${this.data.roomId}/${path}`).set(val); },
-    async endGame() { if(confirm('确定解散并删除数据？')) await db.ref(`rooms/${this.data.roomId}`).remove(); }
+    async endGame() { 
+        if(confirm('确定解散牌局？此操作不可恢复')) {
+            await db.ref(`rooms/${this.data.roomId}`).remove();
+            this.forceExit();
+        } 
+    }
 };
 
 window.onload = () => App.init();

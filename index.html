@@ -5,19 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>麻将计分工具</title>
     <link rel="stylesheet" href="style.css">
-    <!-- 使用更兼容的 CDN 加载库 -->
     <script src="https://cdn.staticfile.org/firebase/8.10.0/firebase-app.js"></script>
     <script src="https://cdn.staticfile.org/firebase/8.10.0/firebase-database.js"></script>
 </head>
 <body>
     <div id="app" class="container">
-        <!-- 初始状态改为更明确的提示 -->
         <div class="card" id="init-loader">
             <div class="title">正在连接服务器...</div>
-            <p style="text-align:center; color:#7f8c8d;">请稍候，如果长时间无响应请刷新页面</p>
-            <button class="btn" style="margin-top:20px; font-size:12px; background:#333;" onclick="localStorage.clear();location.href=location.pathname">强制重置系统</button>
+            <p style="text-align:center; color:#7f8c8d; font-size: 14px;">如果长时间无响应，请点击下方按钮重置</p>
+            <button class="btn" style="margin-top:20px; background:#333;" onclick="localStorage.clear();window.location.href=window.location.pathname">强制重置并返回首页</button>
         </div>
     </div>
     <script src="app.js"></script>
 </body>
-</html
+</html>
