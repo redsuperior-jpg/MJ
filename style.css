@@ -2,22 +2,18 @@
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; display: flex; justify-content: center; }
 .container { width: 100%; max-width: 480px; padding: 16px; animation: fadeIn 0.4s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
 .card { background: #16213e; border-radius: 16px; padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); border: 1px solid #1a1a4e; }
 .title { font-size: 1.5rem; font-weight: bold; margin-bottom: 12px; color: #e94560; text-align: center; }
 .btn { display: block; width: 100%; padding: 14px; margin: 6px 0; border: none; border-radius: 12px; font-size: 1rem; font-weight: bold; cursor: pointer; background: #0f3460; color: white; transition: all 0.2s; text-align: center; }
 .btn:active { transform: scale(0.96); opacity: 0.8; }
 .btn-primary { background: #e94560; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
 input { width: 100%; padding: 12px; margin: 6px 0; background: #0f3460; border: 1px solid #1a1a4e; border-radius: 10px; color: white; font-size: 1rem; text-align: center; }
 .player-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 8px; border-bottom: 1px solid #1a1a4e; }
 .score { font-size: 1.2rem; font-weight: bold; }
 .positive { color: #2ecc71; }
 .negative { color: #e94560; }
-
-.version-tag { text-align: center; font-size: 10px; color: #4e4e6a; margin-top: 20px; text-transform: uppercase; }
+.version-tag { text-align: center; font-size: 10px; color: #4e4e6a; margin-top: 20px; }
 .history-item { background: #0f3460; border-radius: 10px; padding: 12px; margin: 8px 0; font-size: 0.85rem; border-left: 4px solid #e94560; }
-.delta-badge { padding: 2px 8px; border-radius: 8px; font-size: 0.75rem; margin: 2px; display: inline-block; background: rgba(255,255,255,0.05); }
+.phase-indicator { background: rgba(233, 69, 96, 0.1); color: #e94560; padding: 8px; border-radius: 8px; margin-bottom: 10px; text-align: center; font-size: 0.9rem; }
 .danger-btn { background: #5c1a1a; color: #ff9999; margin-top: 20px; }
-.phase-indicator { text-align: center; padding: 10px; color: #7f8c8d; font-style: italic; }
